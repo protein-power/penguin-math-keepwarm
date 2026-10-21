@@ -1,0 +1,43 @@
+name: keep-warm
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keepwarm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ping
+        run: |
+          hour=$(TZ=Asia/Seoul date +%H)
+          if [ "$hour" -ge 16 ] && [ "$hour" -le 23 ]; then
+            url='https://penguin-math-api.vercel.app/api/v1/health?deep=1'
+          else
+            url='https://penguin-math-api.vercel.app/api/v1/health'
+          fi
+          echo "KST ${hour}시 → $url"
+          # -f: 503(DB 실패)이면 스텝 실패 → GitHub 가 메일 알림
+          curl -sS -f --max-time 40 -w '\nhttp=%{http_code} total=%{time_total}s\n' "$url"
+
+      - name: keep repo active (daily touch)
+        run: |
+          today=$(TZ=Asia/Seoul date +%F)
+          if [ "$(cat last-ping.txt 2>/dev/null)" != "$today" ]; then
+            echo "$today" > last-ping.txt
+            git config user.name 'keep-warm bot'
+            git config user.email 'actions@users.noreply.github.com'
+            git add last-ping.txt
+            git commit -qm "ping $today"
+            git push -q
+          fi
